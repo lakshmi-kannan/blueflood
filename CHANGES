@@ -6,3 +6,4 @@
  * Batch rollup writes
  * Switch to using org.apache.curator instead of com.netflix.curator
  * Add support for fetching multiple metrics in single HTTP call
+ * Add support for computing histograms from metrics
