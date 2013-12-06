@@ -16,7 +16,6 @@
 
 package com.rackspacecloud.blueflood.outputs.handlers;
 
-import com.rackspacecloud.blueflood.io.AstyanaxIO;
 import com.rackspacecloud.blueflood.io.AstyanaxReader;
 import com.rackspacecloud.blueflood.outputs.formats.MetricData;
 import com.rackspacecloud.blueflood.rollup.Granularity;
@@ -43,6 +42,7 @@ public class RollupHandler {
     protected final Timer rollupsCalcOnReadTimer = Metrics.newTimer(RollupHandler.class, "Rollups calculation on read", TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
     protected final Histogram numFullPointsReturned = Metrics.newHistogram(RollupHandler.class, "Full res points returned", true);
     protected final Histogram numRollupPointsReturned = Metrics.newHistogram(RollupHandler.class, "Rollup points returned", true);
+    protected final Histogram numHistogramPointsReturned = Metrics.newHistogram(RollupHandler.class, "Histogram points returned", true);
 
     protected MetricData getRollupByGranularity(
             String tenantId,
@@ -98,5 +98,28 @@ public class RollupHandler {
         }
 
         return metricData;
+    }
+
+    protected MetricData getHistogramsByGranularity(String tenantId,
+                                                   String metricName,
+                                                   long from,
+                                                   long to,
+                                                   Granularity g) throws IOException {
+        if (!g.isCoarser(Granularity.FULL)) {
+            throw new IOException("Histograms are not available for this granularity");
+        }
+
+        final TimerContext ctx = metricsFetchTimer.time();
+        final Locator locator = Locator.createLocatorFromPathComponents(tenantId, metricName);
+
+        MetricData data;
+        try {
+            data = AstyanaxReader.getInstance().getHistogramsForRange(locator, new Range(g.snapMillis(from), to), g);
+            numHistogramPointsReturned.update(data.getData().getPoints().size());
+        } finally {
+            ctx.stop();
+        }
+
+        return data;
     }
 }
