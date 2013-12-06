@@ -228,6 +228,9 @@ public class HttpRollupHandlerIntegrationTest extends IntegrationTestBase {
             Points<SimpleNumber> input = AstyanaxReader.getInstance().getSimpleDataToRoll(locator, range);
             BasicRollup basicRollup = BasicRollup.buildRollupFromRawSamples(input);
             writeContexts.add(new SingleRollupWriteContext(basicRollup, locator, destCF, range.start));
+
+            HistogramRollup histogramRollup = HistogramRollup.buildRollupFromRawSamples(input);
+            writeContexts.add(new SingleRollupWriteContext(histogramRollup, locator, destCF, range.start));
         }
 
         AstyanaxWriter.getInstance().insertRollups(writeContexts);
