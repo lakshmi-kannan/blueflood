@@ -68,15 +68,11 @@ public class BatchMetricsQueryHandler {
         final Timer.Context queryTimerCtx = queryTimer.time();
 
         final List<Future<Boolean>> resultFutures = new ArrayList<Future<Boolean>>();
-        for (final Locator locator : query.getLocators()) {
-            Future<Boolean> result = executor.submit(
-                    new MetricFetchCallable(locator,
-                                            query.getRange(),
-                                            query.getGranularity(),
-                                            shortLatch)
-            );
-            resultFutures.add(result);
-        }
+        Future<Boolean> result = executor.submit(
+                new MetricFetchCallable(query, shortLatch);
+        );
+        resultFutures.add(result);
+
 
         // Wait until timeout happens or you got all the results
         shortLatch.await(queryTimeout.getValue(), queryTimeout.getUnit());
@@ -107,15 +103,11 @@ public class BatchMetricsQueryHandler {
 
 
     public class MetricFetchCallable implements Callable<Boolean> {
-        private final Locator locator;
-        private final Range range;
-        private final Granularity gran;
+        private final BatchMetricsQuery query;
         private final CountDownLatch latch;
 
-        public MetricFetchCallable(Locator locator, Range range, Granularity gran, CountDownLatch latch) {
-            this.locator = locator;
-            this.range = range;
-            this.gran = gran;
+        public MetricFetchCallable(BatchMetricsQuery query, CountDownLatch latch) {
+            this.query = query;
             this.latch = latch;
         }
 

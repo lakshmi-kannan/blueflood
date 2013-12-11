@@ -68,6 +68,10 @@ public class Instrumentation implements InstrumentationMBean {
         return readTimers.getTimerContext(queryCF);
     }
 
+    public static Timer.Context getBatchReadTimerContext(ColumnFamily queryCF) {
+        return readTimers.getTimerContext(queryCF, true);
+    }
+
     public static Timer.Context getWriteTimerContext(ColumnFamily queryCF) {
         return writeTimers.getTimerContext(queryCF, false);
     }
@@ -106,15 +110,17 @@ public class Instrumentation implements InstrumentationMBean {
 
     private static class ReadTimers {
         private final Map<ColumnFamily, Timer> cfTimers = new HashMap<ColumnFamily, Timer>();
+        private final Map<ColumnFamily, Timer> cfBatchTimers = new HashMap<ColumnFamily, Timer>();
 
-        public Timer.Context getTimerContext(ColumnFamily queryCF) {
+        public Timer.Context getTimerContext(ColumnFamily queryCF, boolean batch) {
+            final Map<ColumnFamily, Timer> map = (batch ? cfBatchTimers : cfTimers);
             synchronized (queryCF) {
-                if (!cfTimers.containsKey(queryCF)) {
-                    final String metricName = queryCF.getName();
-                    cfTimers.put(queryCF, Metrics.timer(Instrumentation.class, "reads", metricName));
+                if (!map.containsKey(queryCF)) {
+                    final String metricName = (batch ? MetricRegistry.name("batched-", queryCF.getName()) : queryCF.getName());
+                    map.put(queryCF, Metrics.timer(Instrumentation.class, "reads", metricName));
                 }
             }
-            return cfTimers.get(queryCF).time();
+            return map.get(queryCF).time();
         }
     }
 

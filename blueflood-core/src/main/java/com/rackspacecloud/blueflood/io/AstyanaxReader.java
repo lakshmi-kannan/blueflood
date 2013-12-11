@@ -18,11 +18,10 @@ package com.rackspacecloud.blueflood.io;
 
 import com.codahale.metrics.Timer;
 import com.netflix.astyanax.Keyspace;
+import com.netflix.astyanax.connectionpool.OperationResult;
 import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 import com.netflix.astyanax.connectionpool.exceptions.NotFoundException;
-import com.netflix.astyanax.model.Column;
-import com.netflix.astyanax.model.ColumnFamily;
-import com.netflix.astyanax.model.ColumnList;
+import com.netflix.astyanax.model.*;
 import com.netflix.astyanax.query.RowQuery;
 import com.netflix.astyanax.serializers.AbstractSerializer;
 import com.netflix.astyanax.serializers.BooleanSerializer;
@@ -41,9 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class AstyanaxReader extends AstyanaxIO {
     private static final Logger log = LoggerFactory.getLogger(AstyanaxReader.class);
@@ -222,6 +219,71 @@ public class AstyanaxReader extends AstyanaxIO {
             log.warn("Caught exception trying to find metric type from meta cache for locator " + locator.toString(), e);
             return getNumericOrStringRollupDataForRange(locator, range, gran);
         }
+    }
+
+    public Map<Locator, MetricData> getDatapointsForRange(List<Locator> locators, Range range, Granularity gran) {
+        Map<Metric.Type, List<Locator>> locatorsByType = new HashMap<Metric.Type, List<Locator>>;
+
+        for (Locator locator : locators) {
+            try {
+                Object type = metaCache.get(locator, "type");
+                Metric.Type metricType = new Metric.Type((String) type);
+
+                if (Metric.Type.isKnownMetricType(metricType)) {
+                    List<Locator> locs = locatorsByType.get(metricType);
+                    if (locs == null) {
+                        locs = new ArrayList<Locator>();
+                        locatorsByType.put(metricType, locs);
+                    }
+                    locs.add(locator);
+                } else {
+                    // We don't want to scan all the column families during batch reads.
+                    // Just emit an error when the percentage of unknown types is beyond a certain value
+                }
+            } catch (Exception ex) {
+                // pass for now
+            }
+        }
+
+        for (Metric.Type metricType : locatorsByType.keySet()) {
+            List<Locator> locs = locatorsByType.get(metricType);
+            ColumnFamily<Locator, Long> CF = null; // XXX: Fix things to get the right CF based on gran and type
+
+            Map<Locator, ColumnList<Long>> metrics = getColumnsFromDB(locs, CF, range);
+
+        }
+    }
+
+    private Map<Locator, ColumnList<Long>> getColumnsFromDB(List<Locator> locators, ColumnFamily<Locator, Long> CF,
+                                                            Range range) {
+        final Map<Locator, ColumnList<Long>> columns = new HashMap<Locator, ColumnList<Long>>();
+        final RangeBuilder rangeBuilder = new RangeBuilder().setStart(range.getStart()).setEnd(range.getStop());
+
+        Timer.Context ctx = Instrumentation.getReadTimerContext(CF);
+        try {
+            // We don't paginate this call. So we should make sure the number of reads is tolerable.
+            // TODO: Think about paginating this call.
+            OperationResult<Rows<Locator, Long>> query = keyspace
+                    .prepareQuery(CF)
+                    .getKeySlice(locators)
+                    .withColumnRange(rangeBuilder.build())
+                    .execute();
+
+            for (Row<Locator, Long> row : query.getResult()) {
+                columns.put(row.getKey(), row.getColumns());
+            }
+        } catch (ConnectionException e) {
+            if (e instanceof NotFoundException) {
+                Instrumentation.markNotFound(CF);
+            } else {
+                Instrumentation.markReadError(e);
+            }
+            log.warn("Batch read query failed for column family " + CF.getName(), e);
+        } finally {
+            ctx.stop();
+        }
+
+        return columns;
     }
 
     public MetricData getHistogramsForRange(Locator locator, Range range, Granularity granularity) throws IOException {
