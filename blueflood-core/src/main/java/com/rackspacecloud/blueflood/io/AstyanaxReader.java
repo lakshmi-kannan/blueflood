@@ -222,14 +222,15 @@ public class AstyanaxReader extends AstyanaxIO {
     }
 
     public Map<Locator, MetricData> getDatapointsForRange(List<Locator> locators, Range range, Granularity gran) {
-        Map<Metric.Type, List<Locator>> locatorsByType = new HashMap<Metric.Type, List<Locator>>;
+        Map<CassandraModel.MetricColumnFamily, List<Locator>> locatorsByType =
+                new HashMap<CassandraModel.MetricColumnFamily, List<Locator>>();
 
         for (Locator locator : locators) {
             try {
-                Object type = metaCache.get(locator, "type");
-                Metric.Type metricType = new Metric.Type((String) type);
+                Object type = metaCache.get(locator, RollupType.CACHE_KEY);
+                CassandraModel.getColumnFamily(RollupType.fromString((String) type), gran);
 
-                if (Metric.Type.isKnownMetricType(metricType)) {
+                if (Metric.DataType.isKnownMetricType(metricType)) {
                     List<Locator> locs = locatorsByType.get(metricType);
                     if (locs == null) {
                         locs = new ArrayList<Locator>();
@@ -245,7 +246,7 @@ public class AstyanaxReader extends AstyanaxIO {
             }
         }
 
-        for (Metric.Type metricType : locatorsByType.keySet()) {
+        for (Metric.DataType metricType : locatorsByType.keySet()) {
             List<Locator> locs = locatorsByType.get(metricType);
             ColumnFamily<Locator, Long> CF = null; // XXX: Fix things to get the right CF based on gran and type
 
