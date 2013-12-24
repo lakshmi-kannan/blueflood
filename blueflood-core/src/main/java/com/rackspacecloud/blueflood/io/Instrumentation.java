@@ -38,6 +38,7 @@ public class Instrumentation implements InstrumentationMBean {
     private static WriteTimers writeTimers = new WriteTimers();
     private static final Meter writeErrMeter;
     private static final Meter readErrMeter;
+    private static final Meter batchReadErrMeter;
 
     // One-off meters
     private static final Meter scanAllColumnFamiliesMeter;
@@ -49,6 +50,7 @@ public class Instrumentation implements InstrumentationMBean {
         Class kls = Instrumentation.class;
         writeErrMeter = Metrics.meter(kls, "writes", "Cassandra Write Errors");
         readErrMeter = Metrics.meter(kls, "reads", "Cassandra Read Errors");
+        batchReadErrMeter = Metrics.meter(kls, "reads", "Batch Cassandra Reads Errors");
         scanAllColumnFamiliesMeter = Metrics.meter(kls, "Scan all ColumnFamilies");
         allPoolsExhaustedException = Metrics.meter(kls, "All Pools Exhausted");
         fullResMetricWritten = Metrics.meter(kls, "Full Resolution Metrics Written");
@@ -65,7 +67,7 @@ public class Instrumentation implements InstrumentationMBean {
     private Instrumentation() {/* Used for JMX exposure */}
 
     public static Timer.Context getReadTimerContext(ColumnFamily queryCF) {
-        return readTimers.getTimerContext(queryCF);
+        return readTimers.getTimerContext(queryCF, false);
     }
 
     public static Timer.Context getBatchReadTimerContext(ColumnFamily queryCF) {
@@ -88,6 +90,13 @@ public class Instrumentation implements InstrumentationMBean {
     // going to bubble up the exception to our reader/writer
     private static void markReadError() {
         readErrMeter.mark();
+    }
+
+    public static void markBatchReadError(ConnectionException e) {
+        batchReadErrMeter.mark();
+        if (e instanceof PoolTimeoutException) {
+            allPoolsExhaustedException.mark();
+        }
     }
 
     public static void markReadError(ConnectionException e) {

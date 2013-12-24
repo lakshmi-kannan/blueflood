@@ -221,38 +221,39 @@ public class AstyanaxReader extends AstyanaxIO {
         }
     }
 
+    // TODO: This should be the only method all output handlers call. We should be able to deprecate
+    // other individual metric fetch methods once this gets in.
     public Map<Locator, MetricData> getDatapointsForRange(List<Locator> locators, Range range, Granularity gran) {
-        Map<CassandraModel.MetricColumnFamily, List<Locator>> locatorsByType =
-                new HashMap<CassandraModel.MetricColumnFamily, List<Locator>>();
+        Map<ColumnFamily, List<Locator>> locatorsByCF =
+                new HashMap<ColumnFamily, List<Locator>>();
+        Map<Locator, ColumnList<Long>> results = new HashMap<Locator, ColumnList<Long>>();
 
         for (Locator locator : locators) {
             try {
-                Object type = metaCache.get(locator, RollupType.CACHE_KEY);
-                CassandraModel.getColumnFamily(RollupType.fromString((String) type), gran);
+                RollupType rollupType = RollupType.fromString((String)
+                        metaCache.get(locator, MetricMetadata.ROLLUP_TYPE.name().toLowerCase()));
+                Metric.DataType dataType = new Metric.DataType((String)
+                        metaCache.get(locator, MetricMetadata.TYPE.name().toLowerCase()));
+                ColumnFamily cf = CassandraModel.getColumnFamily(rollupType, dataType, gran);
+                List<Locator> locs = locatorsByCF.get(cf);
 
-                if (Metric.DataType.isKnownMetricType(metricType)) {
-                    List<Locator> locs = locatorsByType.get(metricType);
-                    if (locs == null) {
-                        locs = new ArrayList<Locator>();
-                        locatorsByType.put(metricType, locs);
-                    }
-                    locs.add(locator);
-                } else {
-                    // We don't want to scan all the column families during batch reads.
-                    // Just emit an error when the percentage of unknown types is beyond a certain value
+                if (locs == null) {
+                    locs = new ArrayList<Locator>();
+                    locatorsByCF.put(cf, locs);
                 }
-            } catch (Exception ex) {
-                // pass for now
+                locs.add(locator);
+            } catch (Exception e) {
+                // pass for now. need metric to figure this stuff out.
             }
         }
 
-        for (Metric.DataType metricType : locatorsByType.keySet()) {
-            List<Locator> locs = locatorsByType.get(metricType);
-            ColumnFamily<Locator, Long> CF = null; // XXX: Fix things to get the right CF based on gran and type
-
+        for (ColumnFamily CF : locatorsByCF.keySet()) {
+            List<Locator> locs = locatorsByCF.get(CF);
             Map<Locator, ColumnList<Long>> metrics = getColumnsFromDB(locs, CF, range);
-
+            results.putAll(metrics);
         }
+
+        return transformBatchResultsToMetricData(results, gran);
     }
 
     private Map<Locator, ColumnList<Long>> getColumnsFromDB(List<Locator> locators, ColumnFamily<Locator, Long> CF,
@@ -260,7 +261,7 @@ public class AstyanaxReader extends AstyanaxIO {
         final Map<Locator, ColumnList<Long>> columns = new HashMap<Locator, ColumnList<Long>>();
         final RangeBuilder rangeBuilder = new RangeBuilder().setStart(range.getStart()).setEnd(range.getStop());
 
-        Timer.Context ctx = Instrumentation.getReadTimerContext(CF);
+        Timer.Context ctx = Instrumentation.getBatchReadTimerContext(CF);
         try {
             // We don't paginate this call. So we should make sure the number of reads is tolerable.
             // TODO: Think about paginating this call.
@@ -274,10 +275,10 @@ public class AstyanaxReader extends AstyanaxIO {
                 columns.put(row.getKey(), row.getColumns());
             }
         } catch (ConnectionException e) {
-            if (e instanceof NotFoundException) {
+            if (e instanceof NotFoundException) { // TODO: Not really sure what happens when one of the keys is not found.
                 Instrumentation.markNotFound(CF);
             } else {
-                Instrumentation.markReadError(e);
+                Instrumentation.markBatchReadError(e);
             }
             log.warn("Batch read query failed for column family " + CF.getName(), e);
         } finally {
@@ -365,6 +366,40 @@ public class AstyanaxReader extends AstyanaxIO {
         }
 
         return getStringMetricDataForRange(locator, range, gran);
+    }
+
+    private Map<Locator, MetricData> transformBatchResultsToMetricData(Map<Locator, ColumnList<Long>> columnsMap,
+                                                                       Granularity gran) {
+        Map<Locator, MetricData> results = new HashMap<Locator, MetricData>();
+
+        for (Locator locator : columnsMap.keySet()) {
+            try {
+                RollupType rollupType = RollupType.fromString((String)
+                        metaCache.get(locator, MetricMetadata.ROLLUP_TYPE.name().toLowerCase()));
+                Metric.DataType dataType = new Metric.DataType((String)
+                        metaCache.get(locator, MetricMetadata.TYPE.name().toLowerCase()));
+                String unit = (String) metaCache.get(locator, MetricMetadata.UNIT.name().toLowerCase());
+                MetricData.Type outputType = MetricData.Type.from(rollupType, dataType);
+                Points points = getPointsFromColumns(columnsMap.get(locator), rollupType, dataType, gran);
+                MetricData data = new MetricData(points, unit, outputType);
+                results.put(locator, data);
+            } catch (Exception e) {
+                // pass
+            }
+        }
+
+        return results;
+    }
+
+    private Points getPointsFromColumns(ColumnList columnList, RollupType rollupType,
+                                        Metric.DataType dataType, Granularity gran) {
+        Class<? extends Rollup> rollupClass = RollupType.classOf(rollupType, gran);
+        Points points = Points.Builder.build(dataType, rollupClass);
+        for (Column<Long> column : columnList) {
+            points.add(pointFromColumn(column, gran, serializerFor(rollupType, dataType, gran)));
+        }
+
+        return points;
     }
 
     private Points.Point pointFromColumn(Column<Long> column, Granularity gran, AbstractSerializer serializer) {
