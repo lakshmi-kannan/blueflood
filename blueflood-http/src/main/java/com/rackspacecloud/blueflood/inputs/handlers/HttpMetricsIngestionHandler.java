@@ -63,8 +63,9 @@ public class HttpMetricsIngestionHandler implements HttpRequestHandler {
     @Override
     public void handle(ChannelHandlerContext ctx, HttpRequest request) {
         // Send 200 OK for every HTTP request
-        sendResponse(ctx, request, null, HttpResponseStatus.OK)
-        final String tenantId = request.getHeader("tenantId");
+        sendResponse(ctx, request, null, HttpResponseStatus.OK);
+        return;
+       /* final String tenantId = request.getHeader("tenantId");
         JSONMetricsContainer jsonMetricsContainer = null;
 
         final Timer.Context timerContext = handlerTimer.time();
@@ -119,7 +120,7 @@ public class HttpMetricsIngestionHandler implements HttpRequestHandler {
             sendResponse(ctx, request, "Error persisting metrics", HttpResponseStatus.INTERNAL_SERVER_ERROR);
         } finally {
             timerContext.stop();
-        }
+        } */
     }
 
     public static void sendResponse(ChannelHandlerContext channel, HttpRequest request, String messageBody, HttpResponseStatus status) {
