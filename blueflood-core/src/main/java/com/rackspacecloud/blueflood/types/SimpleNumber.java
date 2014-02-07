@@ -25,7 +25,7 @@ public class SimpleNumber implements Rollup {
         return true; // value cannot be null, therefore this is always true.
     }
 
-    enum Type {
+    public enum Type {
         INTEGER,
         LONG,
         DOUBLE
@@ -55,6 +55,10 @@ public class SimpleNumber implements Rollup {
         return value;
     }
 
+    public Type getDataType() {
+        return type;
+    }
+
     public String toString() {
         switch (type) {
             case INTEGER:
@@ -66,6 +70,11 @@ public class SimpleNumber implements Rollup {
             default:
                 return super.toString();
         }
+    }
+
+    @Override
+    public RollupType getRollupType() {
+        return RollupType.NOT_A_ROLLUP;
     }
 
     @Override
