@@ -37,14 +37,14 @@ public class ShardStateManager {
     final Set<Integer> shards; // Managed shards
     final Map<Integer, ShardToGranularityMap> shardToGranularityStates = new HashMap<Integer, ShardToGranularityMap>();
     private final Ticker serverTimeMillisecondTicker;
-    final long dropSlotsBeyondTS = Configuration.getInstance().getLongProperty(CoreConfig.DROP_SLOTS_BEYOND_TS);
+    final long dropSlotsBeyondTS = Configuration.getInstance().getLongProperty(CoreConfig.DROP_SLOTS_OLDER_THAN_TS);
 
     private static final Histogram timeSinceUpdate = Metrics.histogram(RollupService.class, "Shard Slot Time Elapsed scheduleSlotsOlderThan");
     // todo: CM_SPECIFIC verify changing metric class name doesn't break things.
     private static final Meter updateStampMeter = Metrics.meter(ShardStateManager.class, "Shard Slot Update Meter");
     private final Meter parentBeforeChild = Metrics.meter(RollupService.class, "Parent slot executed before child");
     private static final Meter reRollupData = Metrics.meter(RollupService.class, "Re-rolling up a slot because of new data");
-    private static final Counter catchPeriodDroppedSlots = Metrics.counter(RollupService.class, "Dropping a slot from rolling because its beyond catch-up period");
+    private static final Meter catchPeriodDroppedSlots = Metrics.meter(RollupService.class, "Dropping a slot from rolling because its beyond catch-up period");
 
     protected ShardStateManager(Collection<Integer> shards, Ticker ticker) {
         this.shards = new HashSet<Integer>(shards);
@@ -254,7 +254,7 @@ public class ShardStateManager {
                         continue;
                     }
                     if (update.getTimestamp() < dropSlotsBeyondTS) {
-                        catchPeriodDroppedSlots.inc();
+                        catchPeriodDroppedSlots.mark();
                         continue;
                     }
                     outputKeys.add(entry.getKey());
